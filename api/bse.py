@@ -1,7 +1,7 @@
 # api/bse.py
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 try:
     from zoneinfo import ZoneInfo
@@ -9,7 +9,7 @@ try:
 except Exception:
     IST = None
 
-from scrapper_bse import fetch_announcements, probe_connectivity  # <- added
+from scrapper_bse import fetch_announcements  # your working function
 
 def today_ddmmyyyy_ist() -> str:
     if IST:
@@ -18,7 +18,7 @@ def today_ddmmyyyy_ist() -> str:
         d = (datetime.utcnow() + timedelta(hours=5, minutes=30)).date()
     return d.strftime("%d/%m/%Y")
 
-app = FastAPI(title="BSE Announcements API (Today Only)")
+app = FastAPI(title="BSE Announcements API — Today (IST)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,50 +27,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
+@app.get("/")  # Final URL: /api/bse
 def today_only(
     search: str = Query(""),
     segment: str = Query("C"),
     submission_type: str = Query("0"),
     category: str = Query(""),
     subcategory: str = Query(""),
-    max_pages: int = Query(5, ge=1, le=50),
-    diag: bool = Query(False, description="Return upstream diagnostics"),
+    max_pages: int = Query(6, ge=1, le=50),
+    diag: bool = Query(False, description="Return minimal diagnostics"),
 ):
     fd = td = today_ddmmyyyy_ist()
 
-    rows: List[Dict] = []
-    err: Optional[str] = None
-    try:
-        rows = fetch_announcements(
-            from_date=fd,
-            to_date=td,
+    def _call(fd_in: str, td_in: str, pages: int) -> List[Dict]:
+        return fetch_announcements(
+            from_date=fd_in,
+            to_date=td_in,
             segment=segment,
             submission_type=submission_type,
             category=category,
             subcategory=subcategory,
             search=search,
-            max_pages=max_pages,
+            max_pages=pages,
             probe=False,
             verbose=False,
         )
-    except Exception as e:
-        err = str(e)
 
-    # dedup
-    seen, dedup = set(), []
+    # First try: strict "today"
+    rows = _call(fd, td, max_pages)
+
+    # Fallback: if nothing, retry with (today-1 .. today) and a bit more pages
+    if not rows:
+        y = (datetime.strptime(fd, "%d/%m/%Y") - timedelta(days=1)).strftime("%d/%m/%Y")
+        rows = _call(y, td, max_pages + 2)
+
+    # Dedup by news_id
+    seen, out = set(), []
     for r in rows:
         nid = r.get("news_id")
         if nid and nid not in seen:
-            seen.add(nid); dedup.append(r)
+            seen.add(nid)
+            out.append(r)
 
-    resp = {"date": fd, "count": len(dedup), "rows": dedup[:200]}
-    if err:
-        resp["error"] = err
+    resp = {"date": fd, "count": len(out), "rows": out[:200]}
     if diag:
-        resp["diag"] = probe_connectivity()
-        resp["sample"] = (dedup[0] if dedup else None)
+        resp["diag"] = {
+            "segment": segment, "submission_type": submission_type,
+            "category": category, "subcategory": subcategory,
+            "search": search, "max_pages": max_pages,
+            "first_row": (out[0] if out else None)
+        }
     return resp
 
 @app.get("/healthz")
-def health(): return {"ok": True, "today_ist": today_ddmmyyyy_ist()}
+def health():
+    return {"ok": True, "today_ist": today_ddmmyyyy_ist()}
