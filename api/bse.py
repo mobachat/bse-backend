@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict
 import traceback
@@ -12,15 +12,13 @@ app.add_middleware(
 )
 
 def _get_fetch():
-    """Lazy import so ImportError shows up in the response for easier debugging."""
     try:
         from scraper_core import fetch_announcements
         return fetch_announcements
     except Exception:
         raise RuntimeError("ImportError:\n" + traceback.format_exc())
 
-# Function URL will be: https://<project>.vercel.app/api/bse
-# So keep the in-app route at "/"
+# Expected URL: https://<project>.vercel.app/api/bse
 @app.get("/")
 def get_bse(
     from_date: Optional[str] = Query(None, description="YYYY-MM-DD or DD/MM/YYYY"),
@@ -47,13 +45,22 @@ def get_bse(
             probe=probe,
             verbose=False,
         )
-        # dedup by news_id (if present)
         seen, dedup = set(), []
         for r in rows:
             nid = r.get("news_id")
             if nid and nid not in seen:
-                seen.add(nid)
-                dedup.append(r)
+                seen.add(nid); dedup.append(r)
         return {"count": len(dedup), "rows": dedup[:200]}
     except Exception:
         return {"error": "Server crash", "trace": traceback.format_exc()}
+
+# DEBUG: catch-all to show the actual path Vercel forwards to this function
+@app.api_route("/{path_name:path}", methods=["GET"])
+async def echo_path(path_name: str, request: Request):
+    return {
+        "debug": "catch-all",
+        "received_path": f"/{path_name}",
+        "query": dict(request.query_params),
+        "hint": "This function should be mounted at /api/bse. "
+                "If you see received_path not empty, you're hitting a subpath under it."
+    }
