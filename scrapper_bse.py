@@ -1,26 +1,3 @@
-# --- MUST: Browser-like session + warm-up ---
-import requests
-
-def make_session() -> requests.Session:
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/124.0.0.0 Safari/537.36"),
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.bseindia.com/",
-        "Connection": "keep-alive",
-        "X-Requested-With": "XMLHttpRequest"
-    })
-    try:
-        s.get("https://www.bseindia.com/", timeout=12, allow_redirects=True)
-    except Exception:
-        pass
-    return s
-
-
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -32,8 +9,8 @@ Usage:
   python scrapper_bse.py --search tata
 
 Notes:
-- Aggressively mimics a browser, warms cookies, and tries multiple param combos.
-- If BSE is actively blocking, --probe will show what it returned.
+- Mimics a browser, warms cookies, and tries multiple parameter variants / endpoints.
+- If the site is blocking, use --probe to print upstream statuses to stderr.
 """
 
 from __future__ import annotations
@@ -54,7 +31,7 @@ ENDPOINTS = [
     "https://api.bseindia.com/BseIndiaAPI/api/AnnGetData/w",
 ]
 
-# Static assets to touch once so the WAF/anti-bot sets cookies for our session.
+# Static assets to touch once so the WAF/anti-bot sets cookies for our session
 WARM_ASSETS = [
     "https://www.bseindia.com/include/css/bootstrap.min.css",
     "https://www.bseindia.com/include/js/jquery-1.11.3.min.js",
@@ -79,6 +56,7 @@ DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d")
 
 # ---------- Utilities ----------
 def to_site_date(s: Optional[str]) -> str:
+    """Accept YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, YYYY/MM/DD → return DD/MM/YYYY. If empty, use today."""
     if not s:
         return dt.date.today().strftime("%d/%m/%Y")
     s = s.strip()
@@ -90,11 +68,13 @@ def to_site_date(s: Optional[str]) -> str:
             pass
     raise ValueError(f"Invalid date: {s}")
 
+
 def _safe_get(d: Dict, *keys, default=None):
     for k in keys:
         if k in d and d[k] not in (None, ""):
             return d[k]
     return default
+
 
 def _make_pdf_url(row: Dict) -> Optional[str]:
     att = _safe_get(row, "ATTACHMENTNAME", "ATTACHMENT", "FILE")
@@ -107,12 +87,14 @@ def _make_pdf_url(row: Dict) -> Optional[str]:
         return f"https://www.bseindia.com/xml-data/corpfiling/AttachHis/{att}"
     return f"https://www.bseindia.com/xml-data/corpfiling/AttachLive/{att}"
 
+
 def _make_detail_url(row: Dict) -> Optional[str]:
     newsid = _safe_get(row, "NEWSID", "newsid")
     scrip = str(_safe_get(row, "SCRIP_CD", "Scripcode", "scripcode", default="")).strip()
     if newsid and scrip:
         return f"https://m.bseindia.com/MAnnDet.aspx?Form=STR&newsid={newsid}&scrpcd={scrip}"
     return None
+
 
 def normalize_row(r: Dict) -> Dict:
     return {
@@ -121,13 +103,15 @@ def normalize_row(r: Dict) -> Dict:
         "scrip_name": _safe_get(r, "S_LONGNAME", "SLONGNAME", "SCRIPNAME", "Scripname"),
         "headline":   _safe_get(r, "NEWSSUB", "HEADLINE", "NEWS_SUB"),
         "category":   _safe_get(r, "CATEGORYNAME", "CATEGORY"),
-        "subcategory":_safe_get(r, "SUBCATEGORYNAME", "SUBCAT"),
+        "subcategory": _safe_get(r, "SUBCATEGORYNAME", "SUBCAT"),
         "news_id":    _safe_get(r, "NEWSID", "newsid"),
         "pdf_url":    _make_pdf_url(r),
         "detail_url": _make_detail_url(r),
     }
 
+
 def _extract_rows(payload: Dict) -> List[Dict]:
+    """Handle common shapes: {Table:[...]}, {data:[...]}, {"d":{"Table":[...]}}."""
     if not isinstance(payload, dict):
         return []
     for key in ("Table", "table", "data", "Data"):
@@ -139,7 +123,8 @@ def _extract_rows(payload: Dict) -> List[Dict]:
             return payload["d"]["Table"]
     return []
 
-def _session(verbose=False) -> requests.Session:
+
+def _session(verbose: bool = False) -> requests.Session:
     s = requests.Session()
     s.headers.update(BROWSER_HEADERS)
     # Warm base page (sets cookies like ASP.NET_SessionId, WAF tokens)
@@ -160,6 +145,7 @@ def _session(verbose=False) -> requests.Session:
             pass
     return s
 
+
 def _param_variants(segment, subm, f_ddmmyyyy, t_ddmmyyyy, page, search, category, subcategory):
     base = {
         "strCat": category or "-1",
@@ -176,6 +162,7 @@ def _param_variants(segment, subm, f_ddmmyyyy, t_ddmmyyyy, page, search, categor
     # Some deployments honor strPrevDate; harmless if empty.
     v3 = dict(base, **{"strIsXBRL": subm, "strPrevDate": ""})
     return [v1, v2, v3]
+
 
 def _try_request(sess: requests.Session, url: str, params: Dict, probe=False, verbose=False):
     # Add a cache-buster & small backoff jitter
@@ -199,7 +186,12 @@ def _try_request(sess: requests.Session, url: str, params: Dict, probe=False, ve
 
     # POST fallback (form-encoded)
     try:
-        r = sess.post(url, data=params, timeout=25, headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"})
+        r = sess.post(
+            url,
+            data=params,
+            timeout=25,
+            headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
+        )
         if probe:
             print(f"[probe] POST {url} → {r.status_code}", file=sys.stderr)
         if r.ok:
@@ -214,11 +206,24 @@ def _try_request(sess: requests.Session, url: str, params: Dict, probe=False, ve
 
     return None
 
-def fetch_announcements(from_date: str, to_date: str, *,
-                        segment="C", submission_type="0",
-                        category="", subcategory="",
-                        search="", max_pages=30,
-                        delay_sec=0.25, verbose=False, probe=False) -> List[Dict]:
+
+def fetch_announcements(
+    from_date: str,
+    to_date: str,
+    *,
+    segment: str = "C",
+    submission_type: str = "0",
+    category: str = "",
+    subcategory: str = "",
+    search: str = "",
+    max_pages: int = 30,
+    delay_sec: float = 0.25,
+    verbose: bool = False,
+    probe: bool = False,
+) -> List[Dict]:
+    """
+    Core fetcher. Returns a list of normalized dicts.
+    """
     f = to_site_date(from_date)
     t = to_site_date(to_date)
     sess = _session(verbose=probe)
@@ -229,7 +234,9 @@ def fetch_announcements(from_date: str, to_date: str, *,
     while page <= max_pages:
         got_any = False
         for url in ENDPOINTS:
-            for params in _param_variants(segment, submission_type, f, t, page, search, category, subcategory):
+            for params in _param_variants(
+                segment, submission_type, f, t, page, search, category, subcategory
+            ):
                 if verbose:
                     print(f"[debug] try page={page} url={url} params={params}", file=sys.stderr)
                 payload = _try_request(sess, url, params, probe=probe, verbose=verbose)
@@ -241,7 +248,7 @@ def fetch_announcements(from_date: str, to_date: str, *,
                 if rows_raw:
                     all_rows.extend(normalize_row(r) for r in rows_raw)
                     got_any = True
-                    # Heuristic: typical page size ~20
+                    # Heuristic: typical page size ~20 — smaller => last page
                     if len(rows_raw) < 20:
                         return all_rows
         if not got_any:
@@ -261,8 +268,10 @@ def _arg(flag: str, default: Optional[str] = None) -> Optional[str]:
             return sys.argv[i + 1]
     return default
 
+
 def _bool(flag: str) -> bool:
     return flag in sys.argv
+
 
 if __name__ == "__main__":
     today = dt.date.today()
@@ -291,7 +300,7 @@ if __name__ == "__main__":
         probe=probe,
     )
 
-    # De-dup
+    # De-dup by news_id
     seen, dedup = set(), []
     for r in data:
         nid = r.get("news_id")
@@ -301,57 +310,3 @@ if __name__ == "__main__":
         dedup.append(r)
 
     print(json.dumps({"count": len(dedup), "rows": dedup[:50]}, ensure_ascii=False, indent=2))
-
-# --- diagnostics helpers (safe to leave in prod) ---
-import requests
-
-def _session_with_browser_headers() -> requests.Session:
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/124.0.0.0 Safari/537.36"),
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.bseindia.com/",
-        "Connection": "keep-alive",
-        "X-Requested-With": "XMLHttpRequest",
-    })
-    return s
-
-def probe_connectivity() -> dict:
-    """
-    Quickly show how BSE responds to this environment.
-    Returns minimal info (no secrets).
-    """
-    s = _session_with_browser_headers()
-    out = {"warmup": {}, "json1": {}}
-
-    try:
-        r0 = s.get("https://www.bseindia.com/", timeout=12, allow_redirects=True)
-        out["warmup"] = {
-            "status": r0.status_code,
-            "set_cookie": bool(r0.headers.get("set-cookie")),
-            "cookies_after": list(s.cookies.keys()),
-            "url": r0.url,
-        }
-    except Exception as e:
-        out["warmup"] = {"error": str(e)}
-
-    # Replace this URL with the exact JSON endpoint you use in fetch_announcements
-    # if you have a different one. Keep Referer header on the session.
-    test_url = "https://www.bseindia.com/corporates/ann.html"  # harmless JSON-ish page
-    try:
-        r1 = s.get(test_url, timeout=12, allow_redirects=True)
-        sample = r1.text[:500] if isinstance(r1.text, str) else ""
-        out["json1"] = {
-            "status": r1.status_code,
-            "len": len(r1.text or ""),
-            "sample": sample,
-            "url": r1.url,
-        }
-    except Exception as e:
-        out["json1"] = {"error": str(e)}
-
-    return out
-
