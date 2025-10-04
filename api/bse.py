@@ -1,14 +1,15 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict
-from scrapper_bse import fetch_announcements
+
+from scrapper_bse import fetch_announcements  # your working function
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"]
 )
 
-@app.get("/")  # final URL: /api/bse
+@app.get("/")  # final URL becomes /api/bse
 def get_bse(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
@@ -32,7 +33,6 @@ def get_bse(
         probe=probe,
         verbose=False,
     )
-    # dedup
     seen, dedup = set(), []
     for r in rows:
         nid = r.get("news_id")
