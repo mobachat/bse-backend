@@ -1,15 +1,14 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict
-
-from scrapper_bse import fetch_announcements  # your working function
+from scrapper_bse import fetch_announcements
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"]
 )
 
-@app.get("/")  # final URL becomes /api/bse
+@app.get("/")  # framework mode -> this will be served at the ROOT "/"
 def get_bse(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
