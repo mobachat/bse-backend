@@ -1,8 +1,5 @@
 {
   "functions": {
-    "api/*.py": {
-      "runtime": "python3.11",
-      "regions": ["bom1"]
-    }
+    "api/*.py": { "runtime": "python3.11" }
   }
 }
