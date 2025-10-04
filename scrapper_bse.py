@@ -278,3 +278,57 @@ if __name__ == "__main__":
         dedup.append(r)
 
     print(json.dumps({"count": len(dedup), "rows": dedup[:50]}, ensure_ascii=False, indent=2))
+
+# --- diagnostics helpers (safe to leave in prod) ---
+import requests
+
+def _session_with_browser_headers() -> requests.Session:
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0.0.0 Safari/537.36"),
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.bseindia.com/",
+        "Connection": "keep-alive",
+        "X-Requested-With": "XMLHttpRequest",
+    })
+    return s
+
+def probe_connectivity() -> dict:
+    """
+    Quickly show how BSE responds to this environment.
+    Returns minimal info (no secrets).
+    """
+    s = _session_with_browser_headers()
+    out = {"warmup": {}, "json1": {}}
+
+    try:
+        r0 = s.get("https://www.bseindia.com/", timeout=12, allow_redirects=True)
+        out["warmup"] = {
+            "status": r0.status_code,
+            "set_cookie": bool(r0.headers.get("set-cookie")),
+            "cookies_after": list(s.cookies.keys()),
+            "url": r0.url,
+        }
+    except Exception as e:
+        out["warmup"] = {"error": str(e)}
+
+    # Replace this URL with the exact JSON endpoint you use in fetch_announcements
+    # if you have a different one. Keep Referer header on the session.
+    test_url = "https://www.bseindia.com/corporates/ann.html"  # harmless JSON-ish page
+    try:
+        r1 = s.get(test_url, timeout=12, allow_redirects=True)
+        sample = r1.text[:500] if isinstance(r1.text, str) else ""
+        out["json1"] = {
+            "status": r1.status_code,
+            "len": len(r1.text or ""),
+            "sample": sample,
+            "url": r1.url,
+        }
+    except Exception as e:
+        out["json1"] = {"error": str(e)}
+
+    return out
+
