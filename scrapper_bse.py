@@ -1,3 +1,26 @@
+# --- MUST: Browser-like session + warm-up ---
+import requests
+
+def make_session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0.0.0 Safari/537.36"),
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.bseindia.com/",
+        "Connection": "keep-alive",
+        "X-Requested-With": "XMLHttpRequest"
+    })
+    try:
+        s.get("https://www.bseindia.com/", timeout=12, allow_redirects=True)
+    except Exception:
+        pass
+    return s
+
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
